@@ -60,12 +60,14 @@ private constructor() {
     }
 
     /**
-     *
      * @param disable if set to true we will not attempt to read from /proc/net/arp
      * directly. This avoids any Android 10 permissions logs appearing.
+     *
+     * @return this object to allow chaining
      */
-    fun setDisableProcNetMethod(disable: Boolean) {
-        disableProcNetMethod = disableProcNetMethod
+    fun setDisableProcNetMethod(disable: Boolean): SubnetDevices {
+        disableProcNetMethod = disable
+        return this
     }
 
     /**

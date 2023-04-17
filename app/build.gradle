@@ -34,8 +34,8 @@ android {
     targetSdkVersion targetSdkVer
 
     // When updating these, remember to update the vars in the root build.gradle
-    versionName "0.4.6"
-    versionCode 23
+    versionName "0.4.7"
+    versionCode 24
 
     archivesBaseName = "AndroidNetworkTools"
     testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
