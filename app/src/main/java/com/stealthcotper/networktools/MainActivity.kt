@@ -47,7 +47,6 @@ class MainActivity : AppCompatActivity() {
         subnetDevicesButton = findViewById(R.id.subnetDevicesButton)
         clearLogButton = findViewById(R.id.clearLogButton)
 
-
         val ipAddress = IPTools.localIPv4Address
         if (ipAddress != null) {
             editIpAddress?.setText(ipAddress.hostAddress)
@@ -142,13 +141,12 @@ class MainActivity : AppCompatActivity() {
         appendResultsText("\n")
         appendResultsText(String.format("%.2f ms", pingResult?.timeTaken))
 
-
         // Perform an asynchronous ping
         Ping.onAddress(ipAddress).setTimeOutMillis(1000).setTimes(5).doPing(object : PingListener {
             override fun onResult(pingResult: PingResult?) {
                 if (pingResult?.isReachable == true) {
                     appendResultsText("\n")
-                    appendResultsText(String.format("%.2f ms", pingResult?.timeTaken))
+                    appendResultsText(String.format("%.2f ms", pingResult.timeTaken))
                 } else {
                     appendResultsText("\n")
                     appendResultsText(getString(R.string.timeout))
@@ -172,6 +170,7 @@ class MainActivity : AppCompatActivity() {
                         pingStats?.maxTimeTaken
                     )
                 )
+                appendResultsText("\n")
                 setEnabled(pingButton, true)
             }
 
@@ -190,21 +189,26 @@ class MainActivity : AppCompatActivity() {
         }
         setEnabled(wolButton, false)
         appendResultsText("IP address: $ipAddress")
+        appendResultsText("\n")
 
         // Get mac address from IP (using arp cache)
          val macAddress = ARPInfo.getMACFromIPAddress(ipAddress)
         if (macAddress == null) {
             appendResultsText("Could not fromIPAddress MAC address, cannot send WOL packet without it.")
+            appendResultsText("\n")
             setEnabled(wolButton, true)
             return
         }
         appendResultsText("MAC address: $macAddress")
+        appendResultsText("\n")
         appendResultsText("IP address2: " + ARPInfo.getIPAddressFromMAC(macAddress))
+        appendResultsText("\n")
 
         // Send Wake on lan packed to ip/mac
         try {
             WakeOnLan.sendWakeOnLan(ipAddress, macAddress)
             appendResultsText("WOL Packet sent")
+            appendResultsText("\n")
         } catch (e: IOException) {
             appendResultsText(e.message)
             e.printStackTrace()

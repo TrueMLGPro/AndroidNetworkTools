@@ -159,7 +159,7 @@ private constructor() {
          */
         fun fromLocalAddress(): SubnetDevices {
             val ipv4 = localIPv4Address
-                ?: throw IllegalAccessError("Could not access local ip address")
+                ?: throw IllegalAccessError("Could not access local IP address")
             return fromIPAddress(ipv4.hostAddress)
         }
 
@@ -179,7 +179,7 @@ private constructor() {
          * @return - this for chaining
          */
         fun fromIPAddress(ipAddress: String): SubnetDevices {
-            require(isIPv4Address(ipAddress)) { "Invalid IP Address" }
+            require(isIPv4Address(ipAddress)) { "Invalid IP Address, IPv4 needed" }
             val segment = ipAddress.substring(0, ipAddress.lastIndexOf(".") + 1)
             val subnetDevice = SubnetDevices()
             subnetDevice.addresses = ArrayList()

@@ -79,7 +79,7 @@ dependencies {
 
   testImplementation 'junit:junit:4.13.2'
 
-  androidTestImplementation 'com.squareup.spoon:spoon-client:1.6.4'
+  androidTestImplementation 'com.squareup.spoon:spoon-client:1.7.1'
   androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
   androidTestImplementation('androidx.test.espresso:espresso-intents:3.5.1')
 }

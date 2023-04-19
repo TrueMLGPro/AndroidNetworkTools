@@ -1,7 +1,6 @@
 package com.stealthcopter.networktools
 
 import java.io.*
-import java.util.logging.Logger
 
 /**
  * Looks at the file at /proc/net/arp to fromIPAddress ip/mac addresses from the cache
@@ -50,7 +49,7 @@ object ARPInfo {
     }
 
     /**
-     * Returns all the ip addresses currently in the ARP cache (/proc/net/arp).
+     * Returns all the IP addresses currently in the ARP cache (/proc/net/arp).
      *
      * @return list of IP addresses found
      */
@@ -101,7 +100,7 @@ object ARPInfo {
      * @return the lines of the ARP Cache.
      */
     private val linesInARPCache: ArrayList<String>
-        private get() {
+        get() {
             val lines = ArrayList<String>()
 
             // If we cant read the file just return empty list
@@ -111,8 +110,8 @@ object ARPInfo {
             var br: BufferedReader? = null
             try {
                 br = BufferedReader(FileReader("/proc/net/arp"))
-                var line: String
-                while (br.readLine().also { line = it } != null) {
+                var line = ""
+                while (br.readLine().also { if (it != null) { line = it } } != null) {
                     lines.add(line)
                 }
             } catch (e: Exception) {
@@ -143,9 +142,9 @@ object ARPInfo {
                 val exit = proc.exitValue()
                 val reader = InputStreamReader(proc.inputStream)
                 val buffer = BufferedReader(reader)
-                var line: String
+                var line = ""
 
-                while (buffer.readLine().also { line = it } != null) {
+                while (buffer.readLine().also { if (it != null) { line = it } } != null) {
                     val splits =
                         line.split(" ".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
                     if (splits.size < 4) {
