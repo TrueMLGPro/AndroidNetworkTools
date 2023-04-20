@@ -2,6 +2,7 @@ package com.stealthcotper.networktools
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
@@ -261,9 +262,9 @@ class MainActivity : AppCompatActivity() {
         setEnabled(subnetDevicesButton, false)
         val startTimeMillis = System.currentTimeMillis()
         val subnetDevices =
-            SubnetDevices.fromLocalAddress().findDevices(object : OnSubnetDeviceFound {
+            SubnetDevices.Companion.setDisableProcNetMethod(Build.VERSION.SDK_INT > 29).fromLocalAddress().findDevices(object : OnSubnetDeviceFound {
                 override fun onDeviceFound(device: Device?) {
-                    appendResultsText("Device: " + device?.ip + " " + device?.hostname)
+                    appendResultsText("Device: " + device?.ip + " " + device?.hostname + " " + device?.mac)
                     appendResultsText("\n")
                 }
 

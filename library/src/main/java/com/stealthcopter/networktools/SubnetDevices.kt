@@ -60,17 +60,6 @@ private constructor() {
     }
 
     /**
-     * @param disable if set to true we will not attempt to read from /proc/net/arp
-     * directly. This avoids any Android 10 permissions logs appearing.
-     *
-     * @return this object to allow chaining
-     */
-    fun setDisableProcNetMethod(disable: Boolean): SubnetDevices {
-        disableProcNetMethod = disable
-        return this
-    }
-
-    /**
      * Cancel a running scan
      */
     fun cancel() {
@@ -185,9 +174,11 @@ private constructor() {
             subnetDevice.addresses = ArrayList()
 
             // Get addresses from ARP Info first as they are likely to be reachable
-            for (ip in allIPAddressesInARPCache) {
-                if (ip.startsWith(segment)) {
-                    subnetDevice.addresses!!.add(ip)
+            if (!subnetDevice.disableProcNetMethod) {
+                for (ip in allIPAddressesInARPCache) {
+                    if (ip.startsWith(segment)) {
+                        subnetDevice.addresses!!.add(ip)
+                    }
                 }
             }
 
@@ -210,6 +201,18 @@ private constructor() {
             subnetDevice.addresses = ArrayList()
             subnetDevice.addresses!!.addAll(ipAddresses!!)
             return subnetDevice
+        }
+
+        /**
+         * @param disable if set to true we will not attempt to read from /proc/net/arp
+         * directly. This avoids any Android 10 permissions logs appearing.
+         *
+         * @return this object to allow chaining
+         */
+        fun setDisableProcNetMethod(disable: Boolean): Companion {
+            val subnetDevices = SubnetDevices()
+            subnetDevices.disableProcNetMethod = disable
+            return this
         }
     }
 }

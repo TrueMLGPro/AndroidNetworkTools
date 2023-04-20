@@ -63,7 +63,7 @@ object ARPInfo {
      * @return list of MAC addresses found
      */
     val allMACAddressesInARPCache: ArrayList<String>
-        get() = ArrayList(allIPAndMACAddressesInARPCache.values)// Ignore values with invalid MAC addresses
+        get() = ArrayList(allIPAndMACAddressesInARPCache.values) // Ignore values with invalid MAC addresses
 
     /**
      * Returns all the IP/MAC address pairs currently in the following places
@@ -92,7 +92,7 @@ object ARPInfo {
                 }
             }
             return macList
-        }// If we cant read the file just return empty list
+        } // If we cant read the file just return empty list
 
     /**
      * Method to read lines from the ARP Cache
