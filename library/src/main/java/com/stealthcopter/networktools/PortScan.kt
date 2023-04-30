@@ -67,7 +67,6 @@ private constructor() {
      * @return this object to allow chaining
      */
     fun setPorts(ports: ArrayList<Int>): PortScan {
-
         // Check all ports are valid
         for (port in ports) {
             validatePort(port)
@@ -190,7 +189,7 @@ private constructor() {
      * @return this object to allow chaining
      * @throws IllegalArgumentException - if invalid method
      */
-    private fun setMethod(method: Int): PortScan {
+    fun setMethod(method: Int): PortScan {
         when (method) {
             METHOD_UDP, METHOD_TCP -> this.method = method
             else -> throw IllegalArgumentException("Invalid method type $method")
@@ -248,7 +247,7 @@ private constructor() {
         } catch (e: InterruptedException) {
             e.printStackTrace()
         }
-        Collections.sort(openPortsFound)
+        openPortsFound.sort()
         return openPortsFound
     }
 
@@ -279,7 +278,7 @@ private constructor() {
                 e.printStackTrace()
             }
             if (portListener != null) {
-                Collections.sort(openPortsFound)
+                openPortsFound.sort()
                 portListener.onFinished(openPortsFound)
             }
         }.start()
@@ -296,7 +295,7 @@ private constructor() {
         }
     }
 
-    private inner class PortScanRunnable internal constructor(
+    private inner class PortScanRunnable (
         private val address: InetAddress?,
         private val portNo: Int,
         private val timeOutMillis: Int,
