@@ -3,6 +3,7 @@ package com.stealthcopter.networktools.portscanning
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.PortUnreachableException
 import java.net.SocketTimeoutException
 
 object PortScanUDP {
@@ -26,8 +27,11 @@ object PortScanUDP {
             ds.isConnected
             ds.receive(dp)
             ds.close()
-        } catch (e: SocketTimeoutException) {
             return true
+        } catch (e: PortUnreachableException) {
+            return false
+        } catch (e: SocketTimeoutException) {
+            return false
         } catch (ignore: Exception) {
         }
         return false

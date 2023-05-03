@@ -185,7 +185,7 @@ class MainActivity : AppCompatActivity() {
     private fun doWakeOnLan() {
         val ipAddress = editIpAddress!!.text.toString()
         if (TextUtils.isEmpty(ipAddress)) {
-            appendResultsText("Invalid Ip Address")
+            appendResultsText("Invalid IP Address")
             return
         }
         setEnabled(wolButton, false)
@@ -222,14 +222,14 @@ class MainActivity : AppCompatActivity() {
     private fun doPortScan() {
         val ipAddress = editIpAddress!!.text.toString()
         if (TextUtils.isEmpty(ipAddress)) {
-            appendResultsText("Invalid Ip Address")
+            appendResultsText("Invalid IP Address")
             setEnabled(portScanButton, true)
             return
         }
         setEnabled(portScanButton, false)
 
         // Perform synchronous port scan
-        appendResultsText("PortScanning IP: $ipAddress")
+        appendResultsText("Scanning IP: $ipAddress")
         appendResultsText("\n")
         val openPorts = PortScan.onAddress(ipAddress).setPort(21).setMethodTCP().doScan()
         val startTimeMillis = System.currentTimeMillis()
