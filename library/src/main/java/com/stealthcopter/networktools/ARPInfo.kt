@@ -1,6 +1,11 @@
 package com.stealthcopter.networktools
 
-import java.io.*
+import it.alessangiorgi.ipneigh30.ArpNDK
+import java.io.BufferedReader
+import java.io.File
+import java.io.FileReader
+import java.io.IOException
+import java.util.*
 
 /**
  * Looks at the file at /proc/net/arp to fromIPAddress ip/mac addresses from the cache
@@ -136,17 +141,12 @@ object ARPInfo {
         get() {
             val macList = HashMap<String, String>()
             try {
-                val runtime = Runtime.getRuntime()
-                val proc = runtime.exec("ip neigh show")
-                proc.waitFor()
-                val exit = proc.exitValue()
-                val reader = InputStreamReader(proc.inputStream)
-                val buffer = BufferedReader(reader)
-                var line = ""
+                val arpLines = Scanner(ArpNDK.getARP())
+                var arpNextLine: String
 
-                while (buffer.readLine().also { if (it != null) { line = it } } != null) {
-                    val splits =
-                        line.split(" ".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+                while (arpLines.hasNextLine()) {
+                    arpNextLine = arpLines.nextLine()
+                    val splits = arpNextLine.split(" ".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
                     if (splits.size < 4) {
                         continue
                     }

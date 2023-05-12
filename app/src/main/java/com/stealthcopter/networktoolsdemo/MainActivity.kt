@@ -1,11 +1,9 @@
-package com.stealthcotper.networktools
+package com.stealthcopter.networktoolsdemo
 
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.Toolbar
 import android.text.TextUtils
 import android.view.Menu
 import android.view.MenuItem
@@ -14,6 +12,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
 import com.stealthcopter.networktools.*
 import com.stealthcopter.networktools.Ping.PingListener
 import com.stealthcopter.networktools.PortScan.PortListener
@@ -127,7 +127,7 @@ class MainActivity : AppCompatActivity() {
         setEnabled(pingButton, false)
 
         // Perform a single synchronous ping
-        var pingResult: PingResult? = null
+        var pingResult: PingResult?
         pingResult = try {
             Ping.onAddress(ipAddress).setTimeOutMillis(1000).doPing()
         } catch (e: UnknownHostException) {
@@ -231,7 +231,6 @@ class MainActivity : AppCompatActivity() {
         // Perform synchronous port scan
         appendResultsText("Scanning IP: $ipAddress")
         appendResultsText("\n")
-        val openPorts = PortScan.onAddress(ipAddress).setPort(21).setMethodTCP().doScan()
         val startTimeMillis = System.currentTimeMillis()
 
         // Perform an asynchronous port scan

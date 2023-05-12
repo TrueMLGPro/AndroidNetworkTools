@@ -1,56 +1,56 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 buildscript {
-  ext {
-    kotlin_version = '1.8.10'
-  }
-  repositories {
-    google()
-    mavenCentral()
-  }
-  dependencies {
-    classpath 'com.android.tools.build:gradle:7.3.1'
-    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    // NOTE: Do not place your application dependencies here; they belong
-    // in the individual module build.gradle files
-  }
+	ext {
+		kotlin_version = '1.8.10'
+	}
+	repositories {
+		google()
+		mavenCentral()
+	}
+	dependencies {
+		classpath 'com.android.tools.build:gradle:7.3.1'
+		classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+		// NOTE: Do not place your application dependencies here; they belong
+		// in the individual module build.gradle files
+	}
 }
 plugins {
-  id 'org.jetbrains.kotlin.jvm' version '1.8.10'
+	id 'org.jetbrains.kotlin.jvm' version '1.8.10'
 }
 
 allprojects {
-  repositories {
-    google()
-    mavenCentral()
-  }
+	repositories {
+		google()
+		mavenCentral()
+		maven { url 'https://jitpack.io' }
+	}
 }
-
 
 subprojects {
-  ext.compileSdkVer = 33
-  ext.buildToolsVer = "33.0.2"
-  ext.minSdkVer = 14
-  ext.targetSdkVer = 33
-  ext.supportLibVer = "27.1.1"
+	ext.compileSdkVer = 33
+	ext.buildToolsVer = "33.0.2"
+	ext.minSdkVer = 14
+	ext.targetSdkVer = 33
 
-  // When updating these, remember to update the vars in app/build.gradle (for FDroid compatibility)
-  // Remember to update readme, and lets keep these version numbers in line with the github releases
-  ext.appVersionName = "0.4.7"
-  ext.appVersionCode = 24
+	// When updating these, remember to update the vars in app/build.gradle (for FDroid compatibility)
+	// Remember to update readme, and lets keep these version numbers in line with the github releases
+	ext.appVersionName = "0.4.7"
+	ext.appVersionCode = 24
 }
 repositories {
-  mavenCentral()
+	mavenCentral()
+	maven { url 'https://jitpack.io' }
 }
 dependencies {
-  implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+	implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
 }
 compileKotlin {
-  kotlinOptions {
-    jvmTarget = "11"
-  }
+	kotlinOptions {
+		jvmTarget = "11"
+	}
 }
 compileTestKotlin {
-  kotlinOptions {
-    jvmTarget = "11"
-  }
+	kotlinOptions {
+		jvmTarget = "11"
+	}
 }

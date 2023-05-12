@@ -1,85 +1,85 @@
-buildscript {
-  repositories {
-    mavenCentral()
-  }
-
-  dependencies {
-    classpath 'com.stanfy.spoon:spoon-gradle-plugin:1.2.2'
-
-    // This is so we can publish straight to Google Play
-    classpath 'com.github.triplet.gradle:play-publisher:1.2.2'
-  }
-}
-
 apply plugin: 'com.android.application'
 apply plugin: 'spoon'
 apply plugin: 'com.github.triplet.play'
 apply plugin: 'org.jetbrains.kotlin.android'
 
-play {
-  track = 'beta'
-  if (project.hasProperty("ANDROID_NETWORK_TOOLS_SERVICE_ACCOUNT")) {
-    serviceAccountEmail ANDROID_NETWORK_TOOLS_SERVICE_ACCOUNT
-  }
-  pk12File = file('../key.p12')
+android {
+	compileSdkVersion compileSdkVer
+	buildToolsVersion buildToolsVer
+
+	defaultConfig {
+		applicationId "com.stealthcopter.networktoolsdemo"
+		minSdkVersion minSdkVer
+		targetSdkVersion targetSdkVer
+
+		// When updating these, remember to update the vars in the root build.gradle
+		versionName "0.4.7"
+		versionCode 24
+
+		archivesBaseName = "AndroidNetworkTools"
+		testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+	}
+
+	//check if the keystore details are defined in gradle.properties (this is so the key is not in github)
+	if (project.hasProperty("ANDROID_NETWORK_TOOLS_STORE")) {
+		signingConfigs {
+			//from ~/.gradle/gradle.properties
+			release {
+				storeFile file(ANDROID_NETWORK_TOOLS_STORE)
+				keyAlias ANDROID_NETWORK_TOOLS_ALIAS
+				storePassword ANDROID_NETWORK_TOOLS_PASS
+				keyPassword ANDROID_NETWORK_TOOLS_KEY_PASS
+			}
+		}
+	}
+
+	buildTypes {
+		release {
+			if (project.hasProperty("ANDROID_NETWORK_TOOLS_STORE")) {
+				signingConfig signingConfigs.release
+			}
+			minifyEnabled false
+			proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+		}
+	}
 }
 
-android {
-  compileSdkVersion compileSdkVer
-  buildToolsVersion buildToolsVer
+buildscript {
+	repositories {
+		mavenCentral()
+	}
 
-  defaultConfig {
-    applicationId "com.stealthcotper.networktools"
-    minSdkVersion minSdkVer
-    targetSdkVersion targetSdkVer
+	dependencies {
+		classpath 'com.stanfy.spoon:spoon-gradle-plugin:1.2.2'
+		// This is so we can publish straight to Google Play
+		classpath 'com.github.triplet.gradle:play-publisher:1.2.2'
+	}
+}
 
-    // When updating these, remember to update the vars in the root build.gradle
-    versionName "0.4.7"
-    versionCode 24
-
-    archivesBaseName = "AndroidNetworkTools"
-    testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-  }
-
-  //check if the keystore details are defined in gradle.properties (this is so the key is not in github)
-  if (project.hasProperty("ANDROID_NETWORK_TOOLS_STORE")) {
-    signingConfigs {
-      //from ~/.gradle/gradle.properties
-      release {
-        storeFile file(ANDROID_NETWORK_TOOLS_STORE)
-        keyAlias ANDROID_NETWORK_TOOLS_ALIAS
-        storePassword ANDROID_NETWORK_TOOLS_PASS
-        keyPassword ANDROID_NETWORK_TOOLS_KEY_PASS
-      }
-    }
-  }
-
-  buildTypes {
-    release {
-      if (project.hasProperty("ANDROID_NETWORK_TOOLS_STORE")) {
-        signingConfig signingConfigs.release
-      }
-      minifyEnabled false
-      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-    }
-  }
+play {
+	track = 'beta'
+	if (project.hasProperty("ANDROID_NETWORK_TOOLS_SERVICE_ACCOUNT")) {
+		serviceAccountEmail ANDROID_NETWORK_TOOLS_SERVICE_ACCOUNT
+	}
+	pk12File = file('../key.p12')
 }
 
 // Spoon used for CI / Testing
 spoon {
-  debug = true
-  // To grant permissions to Android M >= devices */
-  grantAllPermissions = true
+	debug = true
+	// To grant permissions to Android M >= devices */
+	grantAllPermissions = true
 }
 
 dependencies {
-  implementation 'androidx.appcompat:appcompat:1.6.1'
-  implementation 'com.google.android.material:material:1.8.0'
-  implementation project(':library')
+	implementation project(':library')
+	implementation 'androidx.appcompat:appcompat:1.6.1'
+	implementation 'com.google.android.material:material:1.8.0'
+	implementation 'androidx.test.ext:junit:1.1.5'
 
-  testImplementation 'junit:junit:4.13.2'
+	testImplementation 'junit:junit:4.13.2'
 
-  androidTestImplementation 'com.squareup.spoon:spoon-client:1.7.1'
-  androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-  androidTestImplementation('androidx.test.espresso:espresso-intents:3.5.1')
+	androidTestImplementation 'com.squareup.spoon:spoon-client:1.7.1'
+	androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+	androidTestImplementation('androidx.test.espresso:espresso-intents:3.5.1')
 }

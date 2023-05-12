@@ -1,4 +1,4 @@
-package com.stealthcotper.networktools
+package com.stealthcopter.networktoolsdemo
 
 import android.app.Application
 
