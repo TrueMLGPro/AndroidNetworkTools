@@ -18,7 +18,7 @@ object PortScanUDP {
      */
     fun scanAddress(ia: InetAddress?, portNo: Int, timeoutMillis: Int): Boolean {
         try {
-            val bytes = ByteArray(128)
+            val bytes = ByteArray(32)
             val dp = DatagramPacket(bytes, bytes.size)
             val ds = DatagramSocket()
             ds.soTimeout = timeoutMillis
