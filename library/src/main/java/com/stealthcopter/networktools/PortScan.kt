@@ -88,7 +88,7 @@ private constructor() {
         val ports = ArrayList<Int>()
         requireNotNull(portString) { "Empty port string not allowed" }
         portString = portString.substring(portString.indexOf(":") + 1, portString.length)
-        for (x in portString.split(",".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()) {
+        for (x in portString.replace("\\s".toRegex(), "").split(",".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()) {
             if (x.contains("-")) {
                 val start = x.split("-".toRegex()).dropLastWhile { it.isEmpty() }
                     .toTypedArray()[0].toInt()

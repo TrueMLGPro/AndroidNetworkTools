@@ -234,7 +234,7 @@ class MainActivity : AppCompatActivity() {
         val startTimeMillis = System.currentTimeMillis()
 
         // Perform an asynchronous port scan
-        val portScan = PortScan.onAddress(ipAddress).setPortsAll().setMethodTCP()
+        val portScan = PortScan.onAddress(ipAddress).setPortsAll().setMethodTCP().setNoThreads(128)
             .doScan(object : PortListener {
                 override fun onResult(portNo: Int, open: Boolean) {
                     if (open) {
