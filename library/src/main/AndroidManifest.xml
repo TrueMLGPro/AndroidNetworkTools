@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="com.stealthcopter.networktools">
-
+<manifest package="com.stealthcopter.networktools"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-sdk
+        tools:overrideLibrary=
+            "it.alessangiorgi.ipneigh30, androidx.test.*" />
 </manifest>

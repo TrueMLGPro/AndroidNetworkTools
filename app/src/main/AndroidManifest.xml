@@ -5,7 +5,7 @@
     android:installLocation="auto">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-sdk tools:overrideLibrary="it.alessangiorgi.ipneigh30" />
+    <uses-sdk tools:overrideLibrary="it.alessangiorgi.ipneigh30, androidx.test.*" />
 
     <application
         android:name=".ANTApplication"
