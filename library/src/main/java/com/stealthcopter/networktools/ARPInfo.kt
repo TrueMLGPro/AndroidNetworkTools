@@ -5,7 +5,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.io.IOException
-import java.util.*
+import java.util.Scanner
 
 /**
  * Looks at the file at /proc/net/arp to fromIPAddress ip/mac addresses from the cache
