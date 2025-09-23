@@ -16,7 +16,8 @@ Disappointed by the lack of good network APIs in Android / Java I developed a co
 * & More :)
 
 > [!NOTE]
-> com.github.fulvius31:ip-neigh-sdk30 library is used for the purpose of getting the MAC address for devices on the local network on **SDK<=31**.
+> **com.github.fulvius31:ip-neigh-sdk30** library is used for the purpose of getting the MAC address for devices on the local network on **SDK<=31**.
+>
 > However, this approach is blocked by the SELinux policies on newer SDK versions **(>=32)**.
 
 ## General info
