@@ -1,17 +1,23 @@
-> :warning: **Not under active development**: I am no longer actively developing this project as I have other priorities. However, I will still review and accept pull requests with bug fixes and enhancements.
+> [!WARNING]
+> **Not under active development**: This is a fork based on the [Kotlin rewrite](https://github.com/BharathVishal/AndroidNetworkTools) (by BharathVishal) of the original [AndroidNetworkTools](https://github.com/stealthcopter/AndroidNetworkTools) project by stealthcopter.
 
 # Android Network Tools ![image](./app/src/main/res/mipmap-xhdpi/ic_launcher.png)
 
-[![Android Arsenal](https://img.shields.io/badge/Android%20Arsenal-AndroidNetworkTools-green.svg?style=true)](https://android-arsenal.com/details/1/3112)
+![Android Arsenal](https://img.shields.io/badge/Android%20Arsenal-AndroidNetworkTools-green.svg?style=true)
 [![CircleCI](https://circleci.com/gh/stealthcopter/AndroidNetworkTools.svg?style=svg)](https://circleci.com/gh/stealthcopter/AndroidNetworkTools)
 
-Disappointed by the lack of good network apis in android / java I developed a collection of handy networking tools for everyday android development.
+Disappointed by the lack of good network APIs in Android / Java I developed a collection of handy networking tools for everyday Android development.
 
-* Port Scanning
-* Subnet Device Finder (discovers devices on local network)
 * Ping
+* Port Scanning
+* Subnet Device Finder (discovers devices on local network, now with NetBIOS, NSD & SSDP service scanning)
+* SSL Certificate Info Fetcher
 * Wake-On-Lan
 * & More :)
+
+> [!NOTE]
+> com.github.fulvius31:ip-neigh-sdk30 library is used for the purpose of getting the MAC address for devices on the local network on **SDK<=31**.
+> However, this approach is blocked by the SELinux policies on newer SDK versions **(>=32)**.
 
 ## General info
 
