@@ -231,7 +231,8 @@ private constructor() {
         val name: String,
         val type: String,
         val host: String?,
-        val port: Int
+        val port: Int,
+        val attributes: Map<String, String> = emptyMap()
     )
 
     data class UpnpInfo(
@@ -355,13 +356,19 @@ private constructor() {
                             val list = NsdDiscovery.discover(
                                 context = nsdContext!!,
                                 timeoutMs = extrasTimeoutMs,
-                                serviceTypes = if (nsdServiceTypes.isEmpty()) NsdDiscovery.defaultTypes else nsdServiceTypes
+                                serviceTypes = nsdServiceTypes.ifEmpty { NsdDiscovery.defaultTypes }
                             )
                             list.forEach { svc ->
                                 val ip = svc.host
                                 if (!ip.isNullOrBlank()) {
                                     results.getOrPut(ip) { mutableListOf() }
-                                        .add(NsdService(svc.name, svc.type, ip, svc.port))
+                                        .add(NsdService(
+                                            name = svc.name,
+                                            type = svc.type,
+                                            host = ip,
+                                            port = svc.port,
+                                            attributes = svc.attributes
+                                        ))
                                 }
                             }
                         } catch (_: Throwable) { /* ignore */ }
@@ -466,7 +473,7 @@ private constructor() {
 
         private fun ipToLong(ip: String): Long {
             return try {
-                val addr = java.net.InetAddress.getByName(ip) as? java.net.Inet4Address ?: return Long.MAX_VALUE
+                val addr = InetAddress.getByName(ip) as? java.net.Inet4Address ?: return Long.MAX_VALUE
                 val b = addr.address
                 ((b[0].toLong() and 0xff) shl 24) or
                         ((b[1].toLong() and 0xff) shl 16) or

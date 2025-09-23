@@ -3,6 +3,7 @@ package com.stealthcopter.networktools.discovery
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.Collections
@@ -11,12 +12,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 object NsdDiscovery {
-
     data class Service(
         val name: String,
         val type: String,
         val host: String?,
-        val port: Int
+        val port: Int,
+        val attributes: Map<String, String> = emptyMap()
     )
 
     // Default service types to look for
@@ -61,7 +62,17 @@ object NsdDiscovery {
                                 val port = resolved.port
                                 val name = resolved.serviceName ?: serviceInfo.serviceName ?: "Service"
                                 val t = resolved.serviceType ?: serviceInfo.serviceType
-                                results.add(Service(name = name, type = t, host = host, port = port))
+
+                                val attrs = if (Build.VERSION.SDK_INT >= 21) decodeAttributes(resolved) else emptyMap()
+                                results.add(
+                                    Service(
+                                        name = name,
+                                        type = t,
+                                        host = host,
+                                        port = port,
+                                        attributes = attrs
+                                    )
+                                )
                             }
                         })
                     }
@@ -98,5 +109,17 @@ object NsdDiscovery {
         // Wait for stop
         stopLatch.await((timeoutMs + 1000).toLong(), TimeUnit.MILLISECONDS)
         return results.toList()
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.LOLLIPOP)
+    private fun decodeAttributes(info: NsdServiceInfo): Map<String, String> {
+        return try {
+            val map = info.attributes // Map<String, ByteArray> on API 21+
+            map?.mapValues { (_, v) ->
+                try { String(v ?: ByteArray(0), Charsets.UTF_8) } catch (_: Throwable) { "" }
+            } ?: emptyMap()
+        } catch (_: Throwable) {
+            emptyMap()
+        }
     }
 }

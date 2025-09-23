@@ -114,8 +114,8 @@ object SsdpDiscovery {
     }
 
     private fun fetchDeviceDescription(location: String, timeoutMs: Int): Map<String, String> {
-        val url = java.net.URL(location)
-        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+        val url = URL(location)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
             instanceFollowRedirects = true
