@@ -1,16 +1,25 @@
 package com.stealthcopter.networktools
 
+import android.content.Context
 import com.stealthcopter.networktools.ARPInfo.allIPAddressesInARPCache
 import com.stealthcopter.networktools.ARPInfo.allIPAndMACAddressesInARPCache
 import com.stealthcopter.networktools.ARPInfo.allIPandMACAddressesFromIPSleigh
 import com.stealthcopter.networktools.IPTools.isIPv4Address
 import com.stealthcopter.networktools.IPTools.localIPv4Address
 import com.stealthcopter.networktools.Ping.Companion.onAddress
+import com.stealthcopter.networktools.discovery.NetBiosTools
+import com.stealthcopter.networktools.discovery.NsdDiscovery
+import com.stealthcopter.networktools.discovery.SsdpDiscovery
 import com.stealthcopter.networktools.subnet.Device
 import java.net.InetAddress
 import java.net.UnknownHostException
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SubnetDevices  // This class is not to be instantiated
 private constructor() {
@@ -141,6 +150,19 @@ private constructor() {
     }
 
     companion object {
+        @Volatile
+        private var defaultDisableProcNetMethod: Boolean = false
+
+        /**
+         * @param disable if true we will not attempt to read /proc/net/arp directly.
+         * This avoids Android 10+ permission logs.
+         * Returns Companion so you can chain `.fromLocalAddress()` like before.
+         */
+        fun setDisableProcNetMethod(disable: Boolean): Companion {
+            defaultDisableProcNetMethod = disable
+            return this
+        }
+
         /**
          * Find devices on the subnet working from the local device ip address
          *
@@ -157,9 +179,7 @@ private constructor() {
          *
          * @return - this for chaining
          */
-        fun fromIPAddress(inetAddress: InetAddress): SubnetDevices {
-            return fromIPAddress(inetAddress.hostAddress)
-        }
+        fun fromIPAddress(inetAddress: InetAddress): SubnetDevices = fromIPAddress(inetAddress.hostAddress)
 
         /**
          * @param ipAddress - the ipAddress string of any device in the subnet i.e. "192.168.0.1"
@@ -170,7 +190,7 @@ private constructor() {
         fun fromIPAddress(ipAddress: String): SubnetDevices {
             require(isIPv4Address(ipAddress)) { "Invalid IP Address, IPv4 needed" }
             val segment = ipAddress.substring(0, ipAddress.lastIndexOf(".") + 1)
-            val subnetDevice = SubnetDevices()
+            val subnetDevice = SubnetDevices().apply { disableProcNetMethod = defaultDisableProcNetMethod }
             subnetDevice.addresses = ArrayList()
 
             // Get addresses from ARP Info first as they are likely to be reachable
@@ -184,8 +204,8 @@ private constructor() {
 
             // Add all missing addresses in subnet
             for (j in 0..254) {
-                if (!subnetDevice.addresses!!.contains(segment + j)) {
-                    subnetDevice.addresses!!.add(segment + j)
+                if (!subnetDevice.addresses!!.contains("$segment$j")) {
+                    subnetDevice.addresses!!.add("$segment$j")
                 }
             }
             return subnetDevice
@@ -197,22 +217,262 @@ private constructor() {
          * @return - this for chaining
          */
         fun fromIPList(ipAddresses: List<String>?): SubnetDevices {
-            val subnetDevice = SubnetDevices()
+            val subnetDevice = SubnetDevices().apply { disableProcNetMethod = defaultDisableProcNetMethod }
             subnetDevice.addresses = ArrayList()
             subnetDevice.addresses!!.addAll(ipAddresses!!)
             return subnetDevice
         }
 
-        /**
-         * @param disable if set to true we will not attempt to read from /proc/net/arp
-         * directly. This avoids any Android 10 permissions logs appearing.
-         *
-         * @return this object to allow chaining
-         */
-        fun setDisableProcNetMethod(disable: Boolean): Companion {
-            val subnetDevices = SubnetDevices()
-            subnetDevices.disableProcNetMethod = disable
-            return this
+        @JvmStatic
+        fun discovery(): DiscoveryBuilder = DiscoveryBuilder()
+    }
+
+    data class NsdService(
+        val name: String,
+        val type: String,
+        val host: String?,
+        val port: Int
+    )
+
+    data class UpnpInfo(
+        val server: String? = null,
+        val st: String? = null,
+        val usn: String? = null,
+        val location: String? = null,
+        val friendlyName: String? = null,
+        val modelName: String? = null,
+        val manufacturer: String? = null,
+        val deviceType: String? = null
+    )
+
+    data class NetworkDeviceInfo(
+        val ip: String,
+        var mac: String? = null,
+        var timeMs: Float? = null,
+        var vendor: String? = null,
+        var netbiosName: String? = null,
+        var upnp: UpnpInfo? = null,
+        var nsdServices: List<NsdService>? = null
+    )
+
+    interface DiscoveryListener {
+        fun onDeviceFound(device: NetworkDeviceInfo) {}
+        fun onDeviceUpdated(device: NetworkDeviceInfo) {}
+        fun onFinished(devices: List<NetworkDeviceInfo>) {}
+    }
+
+    class DiscoverySession internal constructor(
+        private val cancelFlag: AtomicBoolean,
+        private val subnetScanner: SubnetDevices?,
+        private val pendingJobs: MutableList<Future<*>>,
+        private val executor: ExecutorService
+    ) {
+        fun cancel() {
+            cancelFlag.set(true)
+            subnetScanner?.cancel()
+            synchronized(pendingJobs) {
+                for (f in pendingJobs) {
+                    try { f.cancel(true) } catch (_: Throwable) {}
+                }
+                pendingJobs.clear()
+            }
+            try { executor.shutdownNow() } catch (_: Throwable) {}
+        }
+    }
+
+    class DiscoveryBuilder {
+        private var threads: Int = 256
+        private var timeoutMs: Int = 3000
+        private var disableProcNetMethod: Boolean = false
+
+        private var enableNetBios: Boolean = true
+        private var enableUpnp: Boolean = true
+        private var enableNsd: Boolean = false
+        private var nsdContext: Context? = null
+        private var nsdServiceTypes: List<String> = emptyList()
+        private var extrasTimeoutMs: Int = 5000
+        private var vendorResolver: ((String) -> String?)? = null
+
+        fun setNoThreads(n: Int) = apply { threads = n }
+        fun setTimeOutMillis(ms: Int) = apply { timeoutMs = ms }
+        fun setDisableProcNetMethod(disable: Boolean) = apply { disableProcNetMethod = disable }
+
+        fun enableNetBios(enabled: Boolean) = apply { enableNetBios = enabled }
+        fun enableUpnp(enabled: Boolean) = apply { enableUpnp = enabled }
+        fun enableNsd(context: Context?, enabled: Boolean = true) = apply {
+            enableNsd = enabled
+            nsdContext = context?.applicationContext
+        }
+        fun setNsdServiceTypes(types: List<String>) = apply { nsdServiceTypes = types }
+        fun setExtrasTimeoutMillis(ms: Int) = apply { extrasTimeoutMs = ms }
+        fun setVendorResolver(resolver: (String) -> String?) = apply { vendorResolver = resolver }
+
+        fun findDevices(listener: DiscoveryListener): DiscoverySession {
+            val cancelFlag = AtomicBoolean(false)
+            val executor: ExecutorService = Executors.newCachedThreadPool()
+            val pendingJobs = Collections.synchronizedList(mutableListOf<Future<*>>())
+            val devices = ConcurrentHashMap<String, NetworkDeviceInfo>()
+            var scanRef: SubnetDevices? = null
+
+            fun getOrCreate(ip: String): NetworkDeviceInfo {
+                devices[ip]?.let { return it }
+                val new = NetworkDeviceInfo(ip = ip)
+                val prev = devices.putIfAbsent(ip, new)
+                return prev ?: new
+            }
+
+            // Kick off UPnP early
+            val upnpFuture: Future<Map<String, UpnpInfo>>? = if (enableUpnp) {
+                executor.submit<Map<String, UpnpInfo>> {
+                    val byIp = mutableMapOf<String, UpnpInfo>()
+                    try {
+                        val found = SsdpDiscovery.discover(timeoutMs = extrasTimeoutMs)
+                        for (ssdp in found) {
+                            val ip = ssdp.ip
+                            val info = UpnpInfo(
+                                server = ssdp.server,
+                                st = ssdp.st,
+                                usn = ssdp.usn,
+                                location = ssdp.location,
+                                friendlyName = ssdp.friendlyName,
+                                modelName = ssdp.modelName,
+                                manufacturer = ssdp.manufacturer,
+                                deviceType = ssdp.deviceType
+                            )
+                            byIp[ip] = info
+                        }
+                    } catch (_: Throwable) { /* ignore */ }
+                    byIp
+                }.also { pendingJobs.add(it) }
+            } else null
+
+            // Kick off NSD early
+            val nsdFuture: Future<Map<String, List<NsdService>>>? =
+                if (enableNsd && nsdContext != null) {
+                    executor.submit<Map<String, List<NsdService>>> {
+                        val results = mutableMapOf<String, MutableList<NsdService>>()
+                        try {
+                            val list = NsdDiscovery.discover(
+                                context = nsdContext!!,
+                                timeoutMs = extrasTimeoutMs,
+                                serviceTypes = if (nsdServiceTypes.isEmpty()) NsdDiscovery.defaultTypes else nsdServiceTypes
+                            )
+                            list.forEach { svc ->
+                                val ip = svc.host
+                                if (!ip.isNullOrBlank()) {
+                                    results.getOrPut(ip) { mutableListOf() }
+                                        .add(NsdService(svc.name, svc.type, ip, svc.port))
+                                }
+                            }
+                        } catch (_: Throwable) { /* ignore */ }
+                        results
+                    }.also { pendingJobs.add(it) }
+                } else null
+
+            // Start SubnetDevices ping scan
+            scanRef = SubnetDevices
+                .setDisableProcNetMethod(disableProcNetMethod)
+                .fromLocalAddress()
+                .setNoThreads(threads)
+                .setTimeOutMillis(timeoutMs)
+                .findDevices(object : OnSubnetDeviceFound {
+                    override fun onDeviceFound(device: Device?) {
+                        if (device == null || cancelFlag.get()) return
+                        val info = getOrCreate(device.ip)
+                        synchronized(info) {
+                            if (device.mac != null) info.mac = device.mac
+                            if (device.time > 0f) info.timeMs = device.time
+                            if (!info.mac.isNullOrBlank() && vendorResolver != null) {
+                                info.vendor = vendorResolver!!.invoke(info.mac!!.uppercase())
+                            }
+                        }
+                        listener.onDeviceFound(info)
+
+                        if (enableNetBios) {
+                            val job = executor.submit {
+                                try {
+                                    val name = NetBiosTools.queryPrimaryName(device.ip, timeoutMs = 2000)
+                                    if (!name.isNullOrBlank() && !cancelFlag.get()) {
+                                        val again = devices[device.ip]
+                                        if (again != null) {
+                                            var changed = false
+                                            synchronized(again) {
+                                                if (again.netbiosName != name) {
+                                                    again.netbiosName = name
+                                                    changed = true
+                                                }
+                                            }
+                                            if (changed) listener.onDeviceUpdated(again)
+                                        }
+                                    }
+                                } catch (_: Throwable) { /* ignore */ }
+                            }
+                            pendingJobs.add(job)
+                        }
+                    }
+
+                    override fun onFinished(devicesFound: ArrayList<Device>?) {
+                        // Refresh mac/time from final ARP pass
+                        devicesFound?.forEach { d ->
+                            val entry = getOrCreate(d.ip)
+                            synchronized(entry) {
+                                if (d.mac != null) entry.mac = d.mac
+                                if (d.time > 0f) entry.timeMs = d.time
+                                if (!entry.mac.isNullOrEmpty() && vendorResolver != null) {
+                                    entry.vendor = vendorResolver!!.invoke(entry.mac!!.uppercase())
+                                }
+                            }
+                            listener.onDeviceUpdated(entry)
+                        }
+
+                        // Merge UPnP + NSD results
+                        val upnpByIp = try {
+                            upnpFuture?.get(extrasTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                        } catch (_: Throwable) { null } ?: emptyMap()
+                        upnpByIp.forEach { (ip, upnp) ->
+                            val info = getOrCreate(ip)
+                            synchronized(info) { info.upnp = upnp }
+                            listener.onDeviceUpdated(info)
+                        }
+
+                        val nsdByIp = try {
+                            nsdFuture?.get(extrasTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                        } catch (_: Throwable) { null } ?: emptyMap()
+                        nsdByIp.forEach { (ip, nsdList) ->
+                            val info = getOrCreate(ip)
+                            synchronized(info) { info.nsdServices = nsdList }
+                            listener.onDeviceUpdated(info)
+                        }
+
+                        val deadline = System.currentTimeMillis() + extrasTimeoutMs
+                        synchronized(pendingJobs) {
+                            for (f in pendingJobs) {
+                                if (cancelFlag.get()) break
+                                val remain = deadline - System.currentTimeMillis()
+                                if (remain <= 0) break
+                                try { f.get(remain, TimeUnit.MILLISECONDS) } catch (_: Throwable) {}
+                            }
+                            pendingJobs.clear()
+                        }
+
+                        val sorted = devices.values.sortedBy { ipToLong(it.ip) }
+                        listener.onFinished(sorted)
+                        try { executor.shutdownNow() } catch (_: Throwable) {}
+                    }
+                })
+
+            return DiscoverySession(cancelFlag, scanRef, pendingJobs, executor)
+        }
+
+        private fun ipToLong(ip: String): Long {
+            return try {
+                val addr = java.net.InetAddress.getByName(ip) as? java.net.Inet4Address ?: return Long.MAX_VALUE
+                val b = addr.address
+                ((b[0].toLong() and 0xff) shl 24) or
+                        ((b[1].toLong() and 0xff) shl 16) or
+                        ((b[2].toLong() and 0xff) shl 8) or
+                        (b[3].toLong() and 0xff)
+            } catch (_: Throwable) { Long.MAX_VALUE }
         }
     }
 }

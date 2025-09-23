@@ -13,7 +13,7 @@ class Device(ip: InetAddress) {
 
     init {
         this.ip = ip.hostAddress
-        hostname = ip.canonicalHostName
+        this.hostname = ip.canonicalHostName
     }
 
     override fun toString(): String {

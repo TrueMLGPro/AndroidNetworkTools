@@ -44,5 +44,6 @@ dependencies {
 	testImplementation 'org.mockito:mockito-core:2.10.0'
 	implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
 	implementation 'com.github.TrueMLGPro:NativeNetworkTools:3d214ea120' // ip-neigh-sdk30
+	implementation 'com.github.AgNO3:jcifs-ng:f32aa4bcf8' // used for locating NetBIOS devices on the local network
 	implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
 }

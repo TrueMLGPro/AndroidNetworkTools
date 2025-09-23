@@ -11,6 +11,7 @@ android {
 		applicationId "com.stealthcopter.networktoolsdemo"
 		minSdkVersion minSdkVer
 		targetSdkVersion targetSdkVer
+		multiDexEnabled true
 
 		// When updating these, remember to update the vars in the root build.gradle
 		versionName "0.4.8"

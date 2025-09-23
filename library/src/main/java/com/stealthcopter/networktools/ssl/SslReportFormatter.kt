@@ -130,8 +130,8 @@ internal object SslReportFormatter {
                 val type = (item[0] as? Int) ?: continue
                 val value = item[1]?.toString() ?: continue
                 when (type) {
-                    2 -> dns.add(value)  // dNSName
-                    7 -> ip.add(value)   // iPAddress
+                    2 -> dns.add(value) // dNSName
+                    7 -> ip.add(value) // iPAddress
                 }
             }
             buildString {
@@ -154,7 +154,7 @@ internal object SslReportFormatter {
         )
         val out = mutableListOf<String>()
         for (i in ku.indices) {
-            if (i < names.size && ku[i] == true) out.add(names[i])
+            if (i < names.size && ku[i]) out.add(names[i])
         }
         return out.joinToString(", ")
     }
@@ -162,7 +162,7 @@ internal object SslReportFormatter {
     private fun extKeyUsage(cert: X509Certificate): String {
         return try {
             val oids = cert.extendedKeyUsage ?: return ""
-            oids.map { mapEkuOid(it) }.joinToString(", ")
+            oids.joinToString(", ") { mapEkuOid(it) }
         } catch (_: CertificateException) {
             ""
         }

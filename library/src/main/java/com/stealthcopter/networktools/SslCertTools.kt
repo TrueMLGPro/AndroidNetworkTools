@@ -127,7 +127,6 @@ object SslCertTools {
         }
     }
 
-    // Convenience: let Java call buildReport through this object
     @JvmStatic
     fun buildReport(host: String, port: Int, result: Result): String {
         return SslReportFormatter.buildReport(host, port, result)
