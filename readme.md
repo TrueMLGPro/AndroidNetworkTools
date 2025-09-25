@@ -43,7 +43,6 @@ This library is not yet released in Maven Central, until then you can add as a l
 add remote maven url
 
 ```groovy
-
     repositories {
         maven {
             url "https://jitpack.io"
@@ -55,7 +54,7 @@ then add a library dependency. **Remember** to check for latest release [here](h
 
 ```groovy
     dependencies {
-        compile 'com.github.stealthcopter:AndroidNetworkTools:0.4.6'
+        compile 'com.github.TrueMLGPro:AndroidNetworkTools:library:<commit_hash>'
     }
 ```
 
@@ -92,7 +91,7 @@ A simple java based TCP / UDP port scanner, fast and easy to use. By default it 
 
 Finds devices that respond to ping that are on the same subnet as the current device. You can set the timeout for the ping with setTimeOutMillis() \[default 2500\] and the number of threads with setNoThreads() \[default 255\]
 
-```
+```java
     // Asynchronously
     SubnetDevices.fromLocalAddress().findDevices(new SubnetDevices.OnSubnetDeviceFound() {
         @Override
