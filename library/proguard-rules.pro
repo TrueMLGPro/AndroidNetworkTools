@@ -15,3 +15,9 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+
+-keep class jcifs.NetbiosAddress { *; }
+-keepclassmembers class jcifs.** {
+byte[] macAddress;
+byte[] getMacAddress(...);
+}

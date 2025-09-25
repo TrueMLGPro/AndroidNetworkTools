@@ -246,12 +246,24 @@ private constructor() {
         val deviceType: String? = null
     )
 
+    data class NetBiosName(
+        val name: String,
+        val suffix: String?,
+        val isGroup: Boolean
+    )
+
+    data class NetBiosInfo(
+        val primaryName: String?,
+        val mac: String?,
+        val names: List<NetBiosName>
+    )
+
     data class NetworkDeviceInfo(
         val ip: String,
         var mac: String? = null,
         var timeMs: Float? = null,
         var vendor: String? = null,
-        var netbiosName: String? = null,
+        var netbios: NetBiosInfo? = null,
         var upnp: UpnpInfo? = null,
         var nsdServices: List<NsdService>? = null
     )
@@ -398,21 +410,33 @@ private constructor() {
                         if (enableNetBios) {
                             val job = executor.submit {
                                 try {
-                                    val name = NetBiosTools.queryPrimaryName(device.ip, timeoutMs = 2000)
-                                    if (!name.isNullOrBlank() && !cancelFlag.get()) {
+                                    val nb = NetBiosTools.queryInfo(device.ip, timeoutMs = 2000)
+                                    if (nb != null && !cancelFlag.get()) {
                                         val again = devices[device.ip]
                                         if (again != null) {
                                             var changed = false
                                             synchronized(again) {
-                                                if (again.netbiosName != name) {
-                                                    again.netbiosName = name
+                                                val converted = NetBiosInfo(
+                                                    primaryName = nb.primaryName,
+                                                    mac = nb.mac,
+                                                    names = nb.names.map { NetBiosName(it.name, it.suffix, it.isGroup) }
+                                                )
+                                                if (again.netbios != converted) {
+                                                    again.netbios = converted
+                                                    changed = true
+                                                }
+                                                if (again.mac.isNullOrBlank() && !nb.mac.isNullOrBlank()) {
+                                                    again.mac = nb.mac
+                                                    if (vendorResolver != null) {
+                                                        again.vendor = vendorResolver!!.invoke(nb.mac.uppercase())
+                                                    }
                                                     changed = true
                                                 }
                                             }
                                             if (changed) listener.onDeviceUpdated(again)
                                         }
                                     }
-                                } catch (_: Throwable) { /* ignore */ }
+                                } catch (_: Throwable) {}
                             }
                             pendingJobs.add(job)
                         }
