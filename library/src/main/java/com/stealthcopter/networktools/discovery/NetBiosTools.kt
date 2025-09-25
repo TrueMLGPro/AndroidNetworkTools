@@ -1,5 +1,6 @@
 package com.stealthcopter.networktools.discovery
 
+import com.stealthcopter.networktools.SubnetDevices
 import jcifs.CIFSContext
 import jcifs.CIFSException
 import jcifs.NetbiosAddress
@@ -20,6 +21,52 @@ object NetBiosTools {
         val mac: String?, // often null or 00:00:00:00:00:00
         val names: List<Name>
     )
+
+    data class SuffixMeta(
+        val descUnique: String? = null,
+        val descGroup: String? = null,
+        val notes: String? = null // optional extra info
+    )
+
+    // Known NetBIOS suffixes
+    val META: Map<String, SuffixMeta> = mapOf(
+        "00" to SuffixMeta(
+            descUnique = "Workstation Service",
+            descGroup = "Workgroup/Domain (LAN Manager Browse Service)"
+        ),
+        "01" to SuffixMeta(descUnique = "Messenger Service (alt calling name)"),
+        "03" to SuffixMeta(descUnique = "Messenger Service (WinPopup)"),
+        "06" to SuffixMeta(descUnique = "RAS Server Service"),
+        "1F" to SuffixMeta(descUnique = "NetDDE Service"),
+        "20" to SuffixMeta(descUnique = "File Server Service"),
+        "21" to SuffixMeta(descUnique = "RAS Client Service"),
+        "22" to SuffixMeta(descUnique = "Microsoft Exchange"),
+        "23" to SuffixMeta(descUnique = "Microsoft Exchange"),
+        "24" to SuffixMeta(descUnique = "Microsoft Exchange"),
+        "2B" to SuffixMeta(descGroup = "Lotus Notes Server Service"),
+        "30" to SuffixMeta(descUnique = "Modem Sharing Server Service"),
+        "31" to SuffixMeta(descUnique = "Modem Sharing Client Service"),
+        "42" to SuffixMeta(descUnique = "McAfee Anti-virus (legacy)"),
+        "43" to SuffixMeta(descUnique = "SMS Client Remote Control"),
+        "44" to SuffixMeta(descUnique = "SMS Admin Remote Control Tool"),
+        "45" to SuffixMeta(descUnique = "SMS Client Chat"),
+        "46" to SuffixMeta(descUnique = "SMS Client Remote Transfer"),
+        "4C" to SuffixMeta(descUnique = "DEC Pathworks TCP/IP for Windows NT"),
+        "52" to SuffixMeta(descUnique = "DEC Pathworks TCP/IP for Windows NT"),
+        "6A" to SuffixMeta(descUnique = "Microsoft Exchange"),
+        "87" to SuffixMeta(descUnique = "Microsoft Exchange"),
+        "BE" to SuffixMeta(descUnique = "Network Monitor Agent"),
+        "BF" to SuffixMeta(descUnique = "Network Monitor Client Application"),
+
+        // Browser/Domain
+        "1B" to SuffixMeta(descUnique = "Domain Master Browser (DMB)"),
+        "1C" to SuffixMeta(descGroup = "Domain Controllers (Internet Group)"),
+        "1D" to SuffixMeta(descUnique = "Local Master Browser (LMB) (LAN-unique)"),
+        "1E" to SuffixMeta(descGroup = "Browser Election Service")
+    )
+
+    // Special hard-coded name for LMB interop: \x01\x02__MSBROWSE__\x02 <01> (group)
+    const val MSBROWSE = "\u0001\u0002__MSBROWSE__\u0002"
 
     @JvmStatic
     fun queryInfo(ip: String, timeoutMs: Int = 2000): Info? {

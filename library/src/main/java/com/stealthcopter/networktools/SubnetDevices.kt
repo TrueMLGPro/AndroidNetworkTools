@@ -149,6 +149,34 @@ private constructor() {
         }
     }
 
+    object NetBiosSuffixUtils {
+        @JvmStatic
+        fun findGroup(nb: NetBiosInfo?): String? {
+            val names = nb?.names ?: return null
+            // 1) group <00> (workgroup/domain)
+            names.firstOrNull { it.isGroup && it.suffix.equals("00", true) }?.name?.let { return it }
+            // 2) group <1E> (browser election)
+            names.firstOrNull { it.isGroup && it.suffix.equals("1E", true) }?.name?.let { return it }
+            // 3) "Internet group" <1C> (domain controllers)
+            names.firstOrNull { it.isGroup && it.suffix.equals("1C", true) }?.name?.let { return it }
+            // 4) any group name
+            return names.firstOrNull { it.isGroup }?.name
+        }
+
+        // Returns a human-readable label for a NetBIOS name based on suffix + group flag + special names
+        @JvmStatic
+        fun describeSuffix(suffix: String?, isGroup: Boolean, rawName: String? = null): String? {
+            // MSBROWSE marker
+            if (rawName == NetBiosTools.MSBROWSE && suffix.equals("01", true)) {
+                return "Local Master Browser (MSBROWSE)"
+            }
+            val key = suffix?.uppercase() ?: return null
+            val meta = NetBiosTools.META[key] ?: return null
+            val base = if (isGroup) meta.descGroup ?: meta.descUnique else meta.descUnique ?: meta.descGroup
+            return base ?: meta.notes
+        }
+    }
+
     companion object {
         @Volatile
         private var defaultDisableProcNetMethod: Boolean = false
