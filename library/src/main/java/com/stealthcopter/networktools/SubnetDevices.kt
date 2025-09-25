@@ -20,6 +20,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class SubnetDevices  // This class is not to be instantiated
 private constructor() {
@@ -31,6 +32,18 @@ private constructor() {
     private var cancelled = false
     private var disableProcNetMethod = false
     private var ipMacHashMap: HashMap<String, String>? = null
+
+    // Progress callback for the scan
+    interface OnScanProgress { fun onProgress(done: Int, total: Int) }
+    private var scanProgressListener: OnScanProgress? = null
+
+    fun setScanProgressListener(l: OnScanProgress?): SubnetDevices {
+        scanProgressListener = l
+        return this
+    }
+
+    @Volatile private var totalToScan: Int = 0
+    private val processedCount = AtomicInteger(0)
 
     interface OnSubnetDeviceFound {
         fun onDeviceFound(device: Device?)
@@ -85,6 +98,10 @@ private constructor() {
         this.listener = listener
         cancelled = false
         devicesFound = ArrayList()
+
+        totalToScan = addresses?.size ?: 0
+        processedCount.set(0)
+
         Thread { // Load mac addresses into cache var (to avoid hammering the /proc/net/arp file when
             // lots of devices are found on the network.
             ipMacHashMap =
@@ -137,14 +154,17 @@ private constructor() {
                     val device = Device(ia)
 
                     // Add the device MAC address if it is in the cache
-                    if (ipMacHashMap!!.containsKey(ia.hostAddress)) {
-                        device.mac = ipMacHashMap!![ia.hostAddress]
+                    if (ipMacHashMap!!.containsKey(ia.hostAddress?.toString())) {
+                        device.mac = ipMacHashMap!![ia.hostAddress?.toString()]
                     }
                     device.time = pingResult.timeTaken
                     subnetDeviceFound(device)
                 }
             } catch (e: UnknownHostException) {
                 e.printStackTrace()
+            } finally {
+                val done = processedCount.incrementAndGet()
+                scanProgressListener?.onProgress(done, totalToScan)
             }
         }
     }
@@ -300,6 +320,8 @@ private constructor() {
         fun onDeviceFound(device: NetworkDeviceInfo) {}
         fun onDeviceUpdated(device: NetworkDeviceInfo) {}
         fun onFinished(devices: List<NetworkDeviceInfo>) {}
+        fun onStageChanged(stageIndex: Int, stageCount: Int, stageName: String) {}
+        fun onProgress(done: Int, total: Int) {}
     }
 
     class DiscoverySession internal constructor(
@@ -354,6 +376,17 @@ private constructor() {
             val pendingJobs = Collections.synchronizedList(mutableListOf<Future<*>>())
             val devices = ConcurrentHashMap<String, NetworkDeviceInfo>()
             var scanRef: SubnetDevices? = null
+
+            val stageNames = mutableListOf<String>().apply {
+                add("Scan") // Ping/ARP scan (NetBIOS runs alongside)
+                if (enableUpnp) add("UPnP")
+                if (enableNsd) add("NSD")
+            }
+            val stageCount = stageNames.size
+            var stageIndex = 1
+
+            // Stage 1
+            listener.onStageChanged(stageIndex, stageCount, stageNames[0])
 
             fun getOrCreate(ip: String): NetworkDeviceInfo {
                 devices[ip]?.let { return it }
@@ -422,6 +455,11 @@ private constructor() {
                 .fromLocalAddress()
                 .setNoThreads(threads)
                 .setTimeOutMillis(timeoutMs)
+                .setScanProgressListener(object : OnScanProgress {
+                    override fun onProgress(done: Int, total: Int) {
+                        listener.onProgress(done, total)
+                    }
+                })
                 .findDevices(object : OnSubnetDeviceFound {
                     override fun onDeviceFound(device: Device?) {
                         if (device == null || cancelFlag.get()) return
@@ -484,6 +522,13 @@ private constructor() {
                             listener.onDeviceUpdated(entry)
                         }
 
+                        // Stage 2: UPnP (if enabled)
+                        val hasUpnp = (upnpFuture != null)
+                        if (hasUpnp) {
+                            stageIndex = 2
+                            listener.onStageChanged(stageIndex, stageCount, "UPnP")
+                        }
+
                         // Merge UPnP + NSD results
                         val upnpByIp = try {
                             upnpFuture?.get(extrasTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
@@ -492,6 +537,13 @@ private constructor() {
                             val info = getOrCreate(ip)
                             synchronized(info) { info.upnp = upnp }
                             listener.onDeviceUpdated(info)
+                        }
+
+                        // Stage 3: NSD (or Stage 2 if no UPnP)
+                        val hasNsd = (nsdFuture != null)
+                        if (hasNsd) {
+                            stageIndex = if (hasUpnp) 3 else 2
+                            listener.onStageChanged(stageIndex, stageCount, "NSD")
                         }
 
                         val nsdByIp = try {
