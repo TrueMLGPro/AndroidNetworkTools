@@ -367,7 +367,7 @@ private constructor() {
             nsdContext = context?.applicationContext
         }
         fun setNsdServiceTypes(types: List<String>) = apply { nsdServiceTypes = types }
-        fun setExtrasTimeoutMillis(ms: Int) = apply { extrasTimeoutMs = ms }
+        // fun setExtrasTimeoutMillis(ms: Int) = apply { extrasTimeoutMs = ms }
         fun setVendorResolver(resolver: (String) -> String?) = apply { vendorResolver = resolver }
 
         fun findDevices(listener: DiscoveryListener): DiscoverySession {
@@ -531,7 +531,7 @@ private constructor() {
 
                         // Merge UPnP + NSD results
                         val upnpByIp = try {
-                            upnpFuture?.get(extrasTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                            upnpFuture?.get()
                         } catch (_: Throwable) { null } ?: emptyMap()
                         upnpByIp.forEach { (ip, upnp) ->
                             val info = getOrCreate(ip)
@@ -547,7 +547,7 @@ private constructor() {
                         }
 
                         val nsdByIp = try {
-                            nsdFuture?.get(extrasTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                            nsdFuture?.get()
                         } catch (_: Throwable) { null } ?: emptyMap()
                         nsdByIp.forEach { (ip, nsdList) ->
                             val info = getOrCreate(ip)
@@ -555,13 +555,10 @@ private constructor() {
                             listener.onDeviceUpdated(info)
                         }
 
-                        val deadline = System.currentTimeMillis() + extrasTimeoutMs
                         synchronized(pendingJobs) {
                             for (f in pendingJobs) {
                                 if (cancelFlag.get()) break
-                                val remain = deadline - System.currentTimeMillis()
-                                if (remain <= 0) break
-                                try { f.get(remain, TimeUnit.MILLISECONDS) } catch (_: Throwable) {}
+                                try { f.get() } catch (_: Throwable) {}
                             }
                             pendingJobs.clear()
                         }
