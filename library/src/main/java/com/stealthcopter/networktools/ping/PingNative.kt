@@ -8,6 +8,97 @@ import java.net.InetAddress
 import kotlin.math.max
 
 object PingNative {
+    data class RawPingResult(
+        val exitCode: Int,
+        val stdout: String,
+        val stderr: String
+    )
+
+    /**
+     * Execute a single ping probe, capturing stdout and stderr regardless of exit code.
+     */
+    @JvmStatic
+    @Throws(IOException::class, InterruptedException::class)
+    fun pingOnceRaw(
+        hostOrAddress: String,
+        ttl: Int,
+        timeoutMillis: Int,
+        noDns: Boolean = false,
+        forceIPv6: Boolean = false
+    ): RawPingResult {
+        val timeoutSeconds = max(timeoutMillis / 1000, 1)
+        val preferIPv6 = forceIPv6 || IPTools.isIPv6Address(hostOrAddress) || hostOrAddress.contains(':')
+
+        val baseCmd = if (preferIPv6) "ping6" else "ping"
+        val args = mutableListOf<String>()
+        args += baseCmd
+        if (noDns) args += "-n"
+        args += listOf(
+            "-c", "1",
+            "-W", timeoutSeconds.toString(),
+            "-t", max(ttl, 1).toString(),
+            hostOrAddress
+        )
+
+        // Try "ping6" first; if missing, fallback to "ping -6"
+        fun runOnce(cmd: Array<String>): RawPingResult {
+            val proc = Runtime.getRuntime().exec(cmd)
+            val outSb = StringBuilder()
+            val errSb = StringBuilder()
+
+            val outThread = Thread {
+                try {
+                    BufferedReader(InputStreamReader(proc.inputStream)).use { r ->
+                        var line: String?
+                        while (r.readLine().also { line = it } != null) outSb.append(line).append('\n')
+                    }
+                } catch (_: Throwable) {}
+            }
+            val errThread = Thread {
+                try {
+                    BufferedReader(InputStreamReader(proc.errorStream)).use { r ->
+                        var line: String?
+                        while (r.readLine().also { line = it } != null) errSb.append(line).append('\n')
+                    }
+                } catch (_: Throwable) {}
+            }
+            outThread.start()
+            errThread.start()
+
+            proc.waitFor()
+
+            try { outThread.join(200) } catch (_: Throwable) {}
+            try { errThread.join(200) } catch (_: Throwable) {}
+
+            return RawPingResult(proc.exitValue(), outSb.toString(), errSb.toString())
+        }
+
+        return try {
+            runOnce(args.toTypedArray())
+        } catch (e: IOException) {
+            // Fallback if ping6 isn't available
+            if (preferIPv6 && baseCmd == "ping") {
+                // no fallback needed
+                throw e
+            }
+            if (preferIPv6 && baseCmd == "ping6") {
+                val fallback = mutableListOf<String>()
+                fallback += "ping"
+                if (noDns) fallback += "-n"
+                fallback += "-6"
+                fallback += listOf(
+                    "-c", "1",
+                    "-W", timeoutSeconds.toString(),
+                    "-t", max(ttl, 1).toString(),
+                    hostOrAddress
+                )
+                runOnce(fallback.toTypedArray())
+            } else {
+                throw e
+            }
+        }
+    }
+
     @JvmStatic
     @Throws(IOException::class, InterruptedException::class)
     fun ping(host: InetAddress?, pingOptions: PingOptions): PingResult {
@@ -24,13 +115,13 @@ object PingNative {
         var pingCommand = "ping"
         if (address != null) {
             if (IPTools.isIPv6Address(address)) {
-                // If we detect this is a ipv6 address, change the to the ping6 binary
+                // If we detect this is a IPv6 address, change the to the ping6 binary
                 pingCommand = "ping6"
             } else if (!IPTools.isIPv4Address(address)) {
-                // Address doesn't look to be ipv4 or ipv6, but we could be mistaken
+                // Address doesn't look to be IPv4 or IPv6, but we could be mistaken
             }
         } else {
-            // Not sure if getHostAddress ever returns null, but if it does, use the hostname as a fallback
+            // Use the hostname as a fallback
             address = host.hostName
         }
         val proc = runtime.exec("$pingCommand -c 1 -W $timeoutSeconds -t $ttl $address")
