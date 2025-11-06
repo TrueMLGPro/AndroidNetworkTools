@@ -58,7 +58,7 @@ class Traceroute private constructor(
         val procRef = AtomicReference<Process?>(null)
         val worker = Executors.newSingleThreadExecutor().submit {
             try {
-                val results = runInternal(cancelFlag) { p -> procRef.set(p) }
+                val results = runInternal(cancelFlag, { p -> procRef.set(p) }, listener)
                 val reached = results.any { it.isFinal }
                 if (!cancelFlag.get()) listener.onFinished(results, reached)
             } catch (t: Throwable) {
@@ -68,9 +68,14 @@ class Traceroute private constructor(
         return Session(cancelFlag, { procRef.get() }, worker)
     }
 
-    fun runBlocking(): List<HopResult> = runInternal(AtomicBoolean(false)) { /* no-op */ }
+    fun runBlocking(): List<HopResult> =
+        runInternal(AtomicBoolean(false), { /* no-op */ }, null)
 
-    private fun runInternal(cancelFlag: AtomicBoolean, setProc: (Process?) -> Unit): List<HopResult> {
+    private fun runInternal(
+        cancelFlag: AtomicBoolean,
+        setProc: (Process?) -> Unit,
+        progress: Listener? = null
+    ): List<HopResult> {
         val results = mutableListOf<HopResult>()
         val canUsePingNative = pingBinary.isNullOrBlank() && extraArgs.isEmpty()
         val cmdBase = if (canUsePingNative) emptyList() else buildCmdBase()
@@ -151,6 +156,10 @@ class Traceroute private constructor(
 
             val finalHop = hopResult ?: HopResult(ttl, null, null, null, isTimeout = true, isFinal = false)
             results.add(finalHop)
+
+            if (!cancelFlag.get()) {
+                try { progress?.onHop(finalHop) } catch (_: Throwable) {}
+            }
 
             if (finalHop.isFinal) break
             if (interHopDelayMs > 0 && !cancelFlag.get()) {
