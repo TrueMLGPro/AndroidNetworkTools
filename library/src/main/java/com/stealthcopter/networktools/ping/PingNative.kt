@@ -3,8 +3,10 @@ package com.stealthcopter.networktools.ping
 import com.stealthcopter.networktools.IPTools
 import java.io.BufferedReader
 import java.io.IOException
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
@@ -17,9 +19,6 @@ object PingNative {
         val timedOut: Boolean
     )
 
-    /**
-     * Execute a single ping probe.
-     */
     @JvmStatic
     @Throws(IOException::class, InterruptedException::class)
     fun pingOnceStream(
@@ -28,17 +27,19 @@ object PingNative {
         timeoutMillis: Int,
         noDns: Boolean = false,
         forceIPv6: Boolean = false,
+        cancelFlag: AtomicBoolean? = null,
         setProc: ((Process?) -> Unit)? = null,
         onLine: ((isStdErr: Boolean, line: String) -> Unit)? = null
     ): StreamPingResult {
         val timeoutSeconds = max(timeoutMillis / 1000, 1)
         val preferIPv6 = forceIPv6 || IPTools.isIPv6Address(hostOrAddress) || hostOrAddress.contains(':')
 
-        fun buildArgs(bin: String, addDash6: Boolean): Array<String> {
+        fun buildArgs(bin: String, addDash6: Boolean, withTimestamp: Boolean): Array<String> {
             val args = mutableListOf<String>()
             args += bin
             if (noDns) args += "-n"
             if (addDash6) args += "-6"
+            if (withTimestamp) args += "-D"
             args += listOf(
                 "-c", "1",
                 "-W", timeoutSeconds.toString(),
@@ -50,21 +51,14 @@ object PingNative {
 
         fun runStream(cmd: Array<String>): StreamPingResult {
             val startNs = System.nanoTime()
+            val startWallMs = System.currentTimeMillis()
             val firstMatchNs = AtomicLong(0L)
+            var rttFromTimestampMs: Float? = null
 
-            // Patterns for early detection
-            val reFinal = Regex(
-                """bytes from\s+[^\s(]+(?:\s+\([^)]+\))?:.*?\btime[=<]?\s*[0-9.]+\s*ms""",
-                RegexOption.IGNORE_CASE
-            )
-            val reHop = Regex(
-                """^From\s+[^\s(]+(?:\s+\([^)]+\))?.*?(ttl|time to live).*?(exceeded|expired)""",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
-            )
-            val reUnreach = Regex(
-                """destination .* unreachable|packet filtered""",
-                RegexOption.IGNORE_CASE
-            )
+            val reFinal = Regex("""bytes from\s+[^\s(]+(?:\s+\([^)]+\))?:""", RegexOption.IGNORE_CASE)
+            val reHop = Regex("""from\s+[^\s(]+(?:\s+\([^)]+\))?.*?(ttl|time to live).*?(exceeded|expired)""", RegexOption.IGNORE_CASE)
+            val reUnreach = Regex("""unreachable|prohibited|filtered""", RegexOption.IGNORE_CASE)
+            val reTs = Regex("""^\s*\[\s*([0-9]+(?:\.[0-9]+)?)\s*\]\s*(.*)$""")
 
             val proc = Runtime.getRuntime().exec(cmd)
             setProc?.invoke(proc)
@@ -72,64 +66,84 @@ object PingNative {
             val outSb = StringBuilder()
             val errSb = StringBuilder()
 
-            val outThread = Thread {
-                try {
-                    BufferedReader(InputStreamReader(proc.inputStream)).use { r ->
-                        var line: String?
-                        while (r.readLine().also { line = it } != null) {
-                            val s = line ?: continue
-                            outSb.append(s).append('\n')
-                            onLine?.invoke(false, s)
-                            if (firstMatchNs.get() == 0L) {
-                                if (reFinal.containsMatchIn(s) || reHop.containsMatchIn(s) || reUnreach.containsMatchIn(s)) {
-                                    if (firstMatchNs.compareAndSet(0L, System.nanoTime())) {
-                                        try { proc.destroy() } catch (_: Throwable) {}
-                                    }
-                                }
-                            }
+            fun processLine(raw: String, isErr: Boolean, sb: StringBuilder) {
+                var s = raw
+                val mTs = reTs.find(raw)
+                if (mTs != null) {
+                    mTs.groupValues[1].toDoubleOrNull()?.let { ts ->
+                        if (rttFromTimestampMs == null) {
+                            val recvMs = (ts * 1000.0).toLong()
+                            val delta = (recvMs - startWallMs).toFloat()
+                            if (delta >= 0f) rttFromTimestampMs = delta
                         }
                     }
-                } catch (_: Throwable) {}
-            }
-            val errThread = Thread {
-                try {
-                    BufferedReader(InputStreamReader(proc.errorStream)).use { r ->
-                        var line: String?
-                        while (r.readLine().also { line = it } != null) {
-                            val s = line ?: continue
-                            errSb.append(s).append('\n')
-                            onLine?.invoke(true, s)
-                            if (firstMatchNs.get() == 0L) {
-                                if (reFinal.containsMatchIn(s) || reHop.containsMatchIn(s) || reUnreach.containsMatchIn(s)) {
-                                    if (firstMatchNs.compareAndSet(0L, System.nanoTime())) {
-                                        try { proc.destroy() } catch (_: Throwable) {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-            outThread.start()
-            errThread.start()
+                    s = mTs.groupValues[2]
+                }
 
-            proc.waitFor()
+                sb.append(s).append('\n')
+                onLine?.invoke(isErr, s)
+
+                if (firstMatchNs.get() == 0L &&
+                    (reFinal.containsMatchIn(s) || reHop.containsMatchIn(s) || reUnreach.containsMatchIn(s))) {
+                    if (firstMatchNs.compareAndSet(0L, System.nanoTime())) {
+                        try { proc.destroy() } catch (_: Throwable) {}
+                    }
+                }
+            }
+
+            fun startReaderThread(`in`: InputStream, isErr: Boolean, sb: StringBuilder): Thread {
+                return Thread {
+                    try {
+                        BufferedReader(InputStreamReader(`in`)).use { r ->
+                            var line: String?
+                            while (r.readLine().also { line = it } != null) {
+                                val raw = line ?: continue
+                                processLine(raw, isErr, sb)
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }.also { it.start() }
+            }
+
+            val outThread = startReaderThread(proc.inputStream, false, outSb)
+            val errThread = startReaderThread(proc.errorStream, true, errSb)
+
+            val deadlineNs = startNs + (timeoutMillis + 500L) * 1_000_000L
+            var exit: Int? = null
+            while (true) {
+                if (cancelFlag?.get() == true) {
+                    try { proc.destroy() } catch (_: Throwable) {}
+                    break
+                }
+                try {
+                    exit = proc.exitValue(); break
+                } catch (_: IllegalThreadStateException) {}
+                if (System.nanoTime() >= deadlineNs) {
+                    try { proc.destroy() } catch (_: Throwable) {}
+                    break
+                }
+                try { Thread.sleep(8) } catch (_: InterruptedException) { break }
+            }
 
             try { outThread.join(200) } catch (_: Throwable) {}
             try { errThread.join(200) } catch (_: Throwable) {}
             setProc?.invoke(null)
 
-            val text = outSb.toString() + "\n" + errSb.toString()
-            val lower = text.lowercase()
-            val elapsedMatchMs = if (firstMatchNs.get() != 0L)
-                ((firstMatchNs.get() - startNs) / 1_000_000.0f) else null
-            val timedOut = lower.contains("100% packet loss") ||
-                    lower.contains("no answer yet") ||
-                    lower.contains("request timeout") ||
-                    lower.contains("deadline exceeded")
+            val lower = (outSb.toString() + "\n" + errSb.toString()).lowercase()
+            val elapsedMatchMs = when {
+                rttFromTimestampMs != null -> rttFromTimestampMs
+                firstMatchNs.get() != 0L -> ((firstMatchNs.get() - startNs) / 1_000_000.0f)
+                else -> null
+            }
+            val timedOut = elapsedMatchMs == null && (
+                    lower.contains("100% packet loss") ||
+                            lower.contains("no answer yet") ||
+                            lower.contains("request timeout") ||
+                            lower.contains("deadline exceeded")
+                    )
 
             return StreamPingResult(
-                exitCode = proc.exitValue(),
+                exitCode = exit ?: -1,
                 stdout = outSb.toString(),
                 stderr = errSb.toString(),
                 firstMatchElapsedMs = elapsedMatchMs,
@@ -137,20 +151,32 @@ object PingNative {
             )
         }
 
-        return try {
+        fun needsTimestampFallback(res: StreamPingResult): Boolean {
+            val lower = (res.stdout + "\n" + res.stderr).lowercase()
+            return lower.contains("unknown option") ||
+                    lower.contains("invalid option") ||
+                    lower.contains("bad option") ||
+                    (lower.contains("usage") && lower.contains("-d"))
+        }
+
+        val result: StreamPingResult = try {
             if (preferIPv6) {
                 try {
-                    runStream(buildArgs("ping6", addDash6 = false))
+                    val r = runStream(buildArgs("ping6", addDash6 = false, withTimestamp = true))
+                    if (needsTimestampFallback(r)) runStream(buildArgs("ping6", addDash6 = false, withTimestamp = false)) else r
                 } catch (_: IOException) {
-                    runStream(buildArgs("ping", addDash6 = true)) // fallback: "ping -6"
+                    val r = runStream(buildArgs("ping", addDash6 = true, withTimestamp = true))
+                    if (needsTimestampFallback(r)) runStream(buildArgs("ping", addDash6 = true, withTimestamp = false)) else r
                 }
             } else {
-                runStream(buildArgs("ping", addDash6 = false))
+                val r = runStream(buildArgs("ping", addDash6 = false, withTimestamp = true))
+                if (needsTimestampFallback(r)) runStream(buildArgs("ping", addDash6 = false, withTimestamp = false)) else r
             }
         } finally {
-            // In case of early exceptions before runStream sets it
             setProc?.invoke(null)
         }
+
+        return result
     }
 
     @JvmStatic
@@ -187,9 +213,7 @@ object PingNative {
                 val reader = InputStreamReader(proc.inputStream)
                 val buffer = BufferedReader(reader)
                 var line: String?
-                while (buffer.readLine().also { line = it } != null) {
-                    echo.append(line).append("\n")
-                }
+                while (buffer.readLine().also { line = it } != null) echo.append(line).append("\n")
                 return pingResult?.let { getPingStats(it, echo.toString()) }!!
             }
             1 -> pingError = "failed, exit = 1"

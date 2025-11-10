@@ -1,6 +1,7 @@
 package com.stealthcopter.networktools
 
 import com.stealthcopter.networktools.ping.PingNative
+import java.net.InetAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,6 +30,7 @@ class Traceroute private constructor(
     interface Listener {
         fun onHop(result: HopResult) {}
         fun onFinished(results: List<HopResult>, reachedTarget: Boolean) {}
+        fun onCanceled(results: List<HopResult>) {}
         fun onError(error: Throwable) {}
     }
 
@@ -40,7 +42,7 @@ class Traceroute private constructor(
         fun cancel() {
             cancelFlag.set(true)
             try { currentProc()?.destroy() } catch (_: Throwable) {}
-            try { worker.cancel(true) } catch (_: Throwable) {}
+            try { worker.cancel(false) } catch (_: Throwable) {}
         }
     }
 
@@ -51,9 +53,10 @@ class Traceroute private constructor(
             try {
                 val results = runInternal(cancelFlag, { p -> procRef.set(p) }, listener)
                 val reached = results.any { it.isFinal }
-                if (!cancelFlag.get()) listener.onFinished(results, reached)
+                if (cancelFlag.get()) listener.onCanceled(results)
+                else listener.onFinished(results, reached)
             } catch (t: Throwable) {
-                if (!cancelFlag.get()) listener.onError(t)
+                if (!cancelFlag.get()) listener.onError(t) else listener.onCanceled(emptyList())
             }
         }
         return Session(cancelFlag, { procRef.get() }, worker)
@@ -68,23 +71,23 @@ class Traceroute private constructor(
         progress: Listener?
     ): List<HopResult> {
         val results = mutableListOf<HopResult>()
+        val destIp: String? = resolveTargetIpOnce(target)
 
         for (ttl in 1..maxTtl) {
             if (cancelFlag.get()) break
-
             var hopResult: HopResult? = null
 
             repeat(max(1, attemptsPerHop)) attempt@{
                 if (cancelFlag.get()) return@attempt
-                val startNs = System.nanoTime()
 
                 val raw: PingNative.StreamPingResult = try {
                     PingNative.pingOnceStream(
-                        hostOrAddress = target,
+                        hostOrAddress = destIp ?: target,
                         ttl = ttl,
                         timeoutMillis = timeoutPerProbeMs,
-                        noDns = !resolveDns,
+                        noDns = true,
                         forceIPv6 = useIPv6,
+                        cancelFlag = cancelFlag,
                         setProc = setProc,
                         onLine = null
                     )
@@ -98,31 +101,29 @@ class Traceroute private constructor(
                     )
                 }
 
-                val elapsedMs = raw.firstMatchElapsedMs
-                    ?: ((System.nanoTime() - startNs) / 1_000_000.0f)
-
-                val parsed = parsePingOutput(raw.stdout, raw.stderr, elapsedMs)
+                val parsed = parsePingOutput(raw.stdout, raw.stderr)
+                val resolvedHost = computeDisplayHost(parsed.host, parsed.ip)
 
                 when (parsed.kind) {
                     ParseKind.Final -> {
                         hopResult = HopResult(
                             ttl = ttl,
-                            host = parsed.host,
+                            host = resolvedHost,
                             ip = parsed.ip,
-                            rttMs = parsed.rttMs ?: elapsedMs,
+                            rttMs = parsed.rttMs ?: raw.firstMatchElapsedMs,
                             isTimeout = false,
-                            isFinal = true
+                            isFinal = true,
                         )
                         return@attempt
                     }
                     ParseKind.Hop -> {
                         hopResult = HopResult(
                             ttl = ttl,
-                            host = parsed.host,
+                            host = resolvedHost,
                             ip = parsed.ip,
-                            rttMs = parsed.rttMs ?: elapsedMs,
+                            rttMs = parsed.rttMs ?: raw.firstMatchElapsedMs,
                             isTimeout = false,
-                            isFinal = false
+                            isFinal = false,
                         )
                         return@attempt
                     }
@@ -133,18 +134,15 @@ class Traceroute private constructor(
                             ip = null,
                             rttMs = null,
                             isTimeout = true,
-                            isFinal = false
+                            isFinal = false,
                         )
                     }
-                    ParseKind.Error -> {
-                        // try next attempt
-                    }
+                    ParseKind.Error -> { /* try next attempt */ }
                 }
             }
 
             val finalHop = hopResult ?: HopResult(ttl, null, null, null, isTimeout = true, isFinal = false)
             results.add(finalHop)
-
             if (!cancelFlag.get()) {
                 try { progress?.onHop(finalHop) } catch (_: Throwable) {}
             }
@@ -157,6 +155,24 @@ class Traceroute private constructor(
         return results
     }
 
+    private fun resolveTargetIpOnce(hostOrIp: String): String? = try {
+        InetAddress.getByName(hostOrIp).hostAddress
+    } catch (_: Throwable) { null }
+
+    private fun computeDisplayHost(hostTok: String?, ip: String?): String? {
+        if (!resolveDns) return hostTok
+        val candidate = when {
+            hostTok != null && (IPTools.isIPv4Address(hostTok) || IPTools.isIPv6Address(hostTok)) -> hostTok
+            ip != null && (hostTok == null || IPTools.isIPv4Address(hostTok) || IPTools.isIPv6Address(hostTok)) -> ip
+            else -> null
+        } ?: return hostTok
+        return reverseDns(candidate) ?: hostTok
+    }
+
+    private fun reverseDns(ip: String): String? = try {
+        InetAddress.getByName(ip).hostName
+    } catch (_: Throwable) { null }
+
     private data class Parsed(
         val kind: ParseKind,
         val host: String? = null,
@@ -166,64 +182,59 @@ class Traceroute private constructor(
     )
     private enum class ParseKind { Hop, Final, Timeout, Error }
 
-    // Parse ping outputs for: hop (TTL exceeded), final (bytes from...), or timeout
-    private fun parsePingOutput(stdout: String, stderr: String, elapsedMs: Float): Parsed {
+    private fun parsePingOutput(stdout: String, stderr: String): Parsed {
         val text = stdout + "\n" + stderr
         val lower = text.lowercase()
 
-        // Final: "64 bytes from name (ip): ... time=xx ms" OR "64 bytes from ip: ... time=xx ms"
+        fun parseTimeToken(src: CharSequence): Float? {
+            val m = Regex("\\btime[=<]?\\s*([0-9]+(?:[.,][0-9]+)?)\\s*ms", RegexOption.IGNORE_CASE).find(src)
+            val s = m?.groupValues?.getOrNull(1)?.replace(',', '.')
+            return s?.toFloatOrNull()
+        }
+        fun cleanTok(s: String?): String? =
+            s?.trim()?.trimEnd(':', ';', ',', '.', ')')
+
         run {
-            val re = Regex(
-                "bytes from\\s+([^\\s(]+)(?:\\s+\\(([^)]+)\\))?:.*?\\btime[=<]?\\s*([0-9.]+)\\s*ms",
-                RegexOption.IGNORE_CASE
-            )
+            val re = Regex("bytes from\\s+([^\\s(]+)(?:\\s+\\(([^)]+)\\))?:", RegexOption.IGNORE_CASE)
             val m = re.find(text)
             if (m != null) {
-                val hostTok = m.groupValues.getOrNull(1)?.trim()
-                val ipTok = m.groupValues.getOrNull(2)?.trim()
-                val timeTok = m.groupValues.getOrNull(3)?.trim()
+                val hostTok = cleanTok(m.groupValues.getOrNull(1))
+                val ipTok = cleanTok(m.groupValues.getOrNull(2))
                 val ip = ipTok ?: hostTok
-                val rtt = timeTok?.toFloatOrNull() ?: elapsedMs
+                val rtt = parseTimeToken(text)
                 return Parsed(ParseKind.Final, host = hostTok, ip = ip, rttMs = rtt)
             }
         }
 
-        // TTL exceeded hop:
-        // "From router (192.168.1.1) ... Time to live exceeded"
-        // "From 192.168.1.1 ... ttl expired in transit"
         run {
             val re = Regex(
-                "^From\\s+([^\\s(]+)(?:\\s+\\(([^)]+)\\))?.*?(ttl|time to live).*?(exceeded|expired)",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
+                pattern = "from\\s+([^\\s:(]+)(?:\\s+\\(([^)]+)\\))?.*?(ttl|time to live).*?(exceeded|expired)",
+                option = RegexOption.IGNORE_CASE
             )
             val m = re.find(text)
             if (m != null) {
-                val hostTok = m.groupValues.getOrNull(1)?.trim()
-                val ipTok = m.groupValues.getOrNull(2)?.trim()
+                val hostTok = cleanTok(m.groupValues.getOrNull(1))
+                val ipTok = cleanTok(m.groupValues.getOrNull(2))
                 val ip = ipTok ?: hostTok
-                return Parsed(ParseKind.Hop, host = hostTok, ip = ip, rttMs = elapsedMs)
+                val rtt = parseTimeToken(m.value)
+                return Parsed(ParseKind.Hop, host = hostTok, ip = ip, rttMs = rtt)
             }
         }
 
-        // Treat destination unreachable/filtered as a hop
         run {
-            val re = Regex("(destination .* unreachable|packet filtered)", RegexOption.IGNORE_CASE)
+            val re = Regex("(destination .* unreachable|prohibited|filtered)", RegexOption.IGNORE_CASE)
             if (re.containsMatchIn(text)) {
-                val reFrom = Regex(
-                    "^From\\s+([^\\s(]+)(?:\\s+\\(([^)]+)\\))?",
-                    setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
-                )
+                val reFrom = Regex("from\\s+([^\\s:(]+)(?:\\s+\\(([^)]+)\\))?", RegexOption.IGNORE_CASE)
                 val m = reFrom.find(text)
-                val hostTok = m?.groupValues?.getOrNull(1)?.trim()
-                val ipTok = m?.groupValues?.getOrNull(2)?.trim()
+                val hostTok = cleanTok(m?.groupValues?.getOrNull(1))
+                val ipTok = cleanTok(m?.groupValues?.getOrNull(2))
                 val ip = ipTok ?: hostTok
-                return Parsed(ParseKind.Hop, host = hostTok, ip = ip, rttMs = elapsedMs)
+                val rtt = parseTimeToken(text)
+                return Parsed(ParseKind.Hop, host = hostTok, ip = ip, rttMs = rtt)
             }
         }
 
-        // Timeouts
-        if (
-            lower.contains("100% packet loss") ||
+        if (lower.contains("100% packet loss") ||
             lower.contains("no answer yet") ||
             lower.contains("request timeout") ||
             lower.contains("deadline exceeded")
@@ -231,7 +242,6 @@ class Traceroute private constructor(
             return Parsed(ParseKind.Timeout)
         }
 
-        // Treat unknown/empty as timeout to keep traceroute moving
         return Parsed(ParseKind.Timeout)
     }
 
